@@ -1,0 +1,6 @@
+#ifndef STANDARD_ROBOT_C_TASK_INIT_H
+#define STANDARD_ROBOT_C_TASK_INIT_H
+
+void task_init();
+
+#endif //STANDARD_ROBOT_C_TASK_INIT_H
