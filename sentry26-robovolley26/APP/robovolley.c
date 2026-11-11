@@ -13,6 +13,7 @@ const pid_config m3508_pid_config = {.mode = PID_POSITION, .kp = 8.0f, .ki = 0.0
     .out_limit_delta_P = 1000.0f, .out_limit_delta_N = 4000.0f, .deadzone = 0.0f};
 const pid_config chassisyaw_pid_config = {.mode = PID_POSITION, .kp = 10.0f, .ki = 0.0f, .kd = 0.0f, .max_out = 20000.0f, .max_iout = 5000.0f,
     .out_limit_delta_P = 1000.0f, .out_limit_delta_N = 4000.0f, .deadzone = 0.0f};
+const pid_config bmi088_v_pid_config = {.mode = PID_POSITION, .kp = 10.0f, .ki = 0.0f, .kd = 0.0f, .max_out = 20000.0f, .max_iout = 5000.0f,};
 robot_t chassis;
 #define MAX_OF_THREE(a, b, c) (((a) > (b)) ? (((a) > (c)) ? (a) : (c)) : (((b) > (c)) ? (b) : (c)))
 
@@ -55,9 +56,9 @@ void Chassis_Init(robot_t* chassis_ptr)
     chassis_ptr->nuc_ctrl = Get_NUC_Ctrl_Instance();
 
     // ---- 以下为排球机构相关初始化，暂时注释掉 ----
-    // static IMU_Data_t bmi088;
-    // BMI088_Init(&bmi088);
-    // INS_Init(&chassis.ins, &bmi088);
+    static IMU_Data_t bmi088;
+    BMI088_Init(&bmi088);
+    INS_Init(&chassis.ins, &bmi088);
     // for (uint8_t i = 0; i < 5; i++)
     // {
     //     rs02_init(&chassis_ptr->rs02[i], &hcan2, i + 0x01, 0xFD, RS02_MODE_POS, RS02_PROTOCOL_PRIVATE);
@@ -175,6 +176,7 @@ static void chassis_pid_init(robot_t* chassis_ptr)
 {
     for (int i = 0; i < 3; i++)
         PID_init(&chassis_ptr->ctrl.m3508_controller[i].pid, m3508_pid_config);
+        PID_init(&chassis_ptr->ins.pid, bmi088_v_pid_config);
 }
 
 /**
@@ -327,6 +329,7 @@ static void chassis_calc_wheelmotor_pidout(robot_t* chassis_ptr)
 {
     for (int i = 0; i < 3; i++)
     {
+        //PID_calc(&chassis_ptr->ins.pid,,chassis_ptr->ctrl.m3508_controller[i].given_speed);
         PID_calc(&chassis_ptr->ctrl.m3508_controller[i].pid, chassis_ptr->m3508.ecd[i].speed, chassis_ptr->ctrl.m3508_controller[i].given_speed);
         chassis_ptr->ctrl.m3508_controller[i].out = chassis_ptr->ctrl.m3508_controller[i].pid.out[0];
     }

@@ -3,6 +3,7 @@
 
 #include "IMU/BMI088/BMI088driver.h"
 #include "pwm/bsp_pwm.h"
+#include "pid.h"
 
 #define INS_TASK_PERIOD 1
 
@@ -37,6 +38,7 @@ typedef struct
     INS_data_t ins;
     IMU_Data_t* imu;
     pwm_instance pwm;
+    pid_t pid;
 } INS_t;
 
 void INS_Init(INS_t *INS, IMU_Data_t *bmi088);

@@ -43,6 +43,7 @@ standard_robot_c\ins.o: ../BSP/typedef.h
 standard_robot_c\ins.o: E:\keil5\ARM\ARMCC\Bin\..\include\stdio.h
 standard_robot_c\ins.o: E:\keil5\ARM\ARMCC\Bin\..\include\string.h
 standard_robot_c\ins.o: ../Core/Inc/tim.h
+standard_robot_c\ins.o: ../BSP/algorithm/pid.h
 standard_robot_c\ins.o: ..\Module\IMU\INS\../../../BSP/algorithm/pid_enhanced.h
 standard_robot_c\ins.o: E:\keil5\ARM\ARMCC\Bin\..\include\stdlib.h
 standard_robot_c\ins.o: ../BSP/dwt/bsp_dwt.h

@@ -30,7 +30,7 @@
 
 #define REDUCTION_RATIO 19.2032f // 减速比
 #define WHEEL_RADIUS 0.08f // 轮子半径，单位m
-#define LINEAR_TO_RPM (PI * 2.0f / WHEEL_RADIUS * REDUCTION_RATIO) // 轮子线速度到电机转子转速比例系数
+#define LINEAR_TO_RPM (60 * REDUCTION_RATIO / (WHEEL_RADIUS * 2.0f *PI )) // 轮子线速度到电机转子转速比例系数
 #define ROOT_2 1.41421356237309504880l
 
 #define MIT_HIT_TORCH 3.0f
