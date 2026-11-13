@@ -2,3 +2,26 @@
 *.log
 其他/
 
+
+# Keil MDK-ARM 编译中间文件与输出
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.bin
+*.htm
+*.dep
+*.lnp
+*.sct
+*.map
+*.iex
+*.tra
+*.uvoptx
+*.uvguix.*
+*.build_log.htm
+uv4.log.lock
+
+# 编译输出文件夹与 IDE 局部缓存
+**/MDK-ARM/standard_robot_c/
+**/MDK-ARM/.vscode/
