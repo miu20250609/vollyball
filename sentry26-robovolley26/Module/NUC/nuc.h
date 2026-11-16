@@ -2,6 +2,7 @@
 #define STANDARD_ROBOT_C_NUC_H
 #include <stdbool.h>
 #include "usart/bsp_uart.h"
+#include "can/bsp_can.h"
 #include "typedef.h"
 
 /**
@@ -28,6 +29,7 @@ typedef struct
 } nuc_ctrl_t;
 
 void NUC_Init(UART_HandleTypeDef *nuc_uart);
+CAN_Status_t NUC_Init_CAN(CAN_HandleTypeDef *nuc_can);
 // 每个控制周期调用。仅在底盘指令未超时时写入输出参数。
 bool NUC_GetChassisCommand(fp32* vx, fp32* vy, fp32* vw, uint8_t* spin);
 nuc_ctrl_t *Get_NUC_Ctrl_Instance(void);

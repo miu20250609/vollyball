@@ -1,4 +1,5 @@
 #include "robovolley.h"
+#include "robot_config.h"
 #include <string.h>
 #include "arm_math.h"
 #include "can.h"
@@ -51,8 +52,12 @@ void Chassis_Init(robot_t* chassis_ptr)
     dbus_init(&chassis_ptr->rc, RC_DIRECT, &hcan1);
     m3508_init(&chassis_ptr->m3508, &hcan1, M3508_TX_1, 3);
 
-    // 雷达（NUC上位机）通信初始化，与哨兵工程一致挂在huart6上
+    // 只启用一个 NUC 控制来源。
+#if NUC_USE_CAN
+    NUC_Init_CAN(&hcan2);
+#else
     NUC_Init(&huart6);
+#endif
     chassis_ptr->nuc_ctrl = Get_NUC_Ctrl_Instance();
 
     // ---- 以下为排球机构相关初始化，暂时注释掉 ----

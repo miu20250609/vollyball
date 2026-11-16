@@ -4,6 +4,8 @@
 #include "user_lib.h"
 #include <math.h>
 #include <string.h>
+#include "can/bsp_can.h"
+#include "stdbool.h"
 
 #define NUC_SOF 0xA5U
 #define NUC_HEADER_SIZE 5U
@@ -11,9 +13,11 @@
 #define NUC_FRAME_OVERHEAD (NUC_PAYLOAD_OFFSET + 2U)
 #define NUC_CHASSIS_TIMEOUT_MS 200U
 
-void NucRxCallback(uint8_t* data, uint16_t len);
-void NUC_Chassis_Handler(const uint8_t* data, uint16_t len);
-void NUC_Gimbal_Handler(const uint8_t* data, uint16_t len);
+static void NucRxCallback(uint8_t* data, uint16_t len);
+static void NUC_CanRxCallback(const uint8_t* data, uint32_t id, void* arg);
+static void NUC_Chassis_Handler(const uint8_t* data, uint16_t len);
+static void NUC_Gimbal_Handler(const uint8_t* data, uint16_t len);
+static void NUC_UpdateChassis(fp32 vx, fp32 vy, uint8_t flags);
 
 static nuc_ctrl_t nuc_instance;
 static uint8_t nuc_rx_buffer[RX_BUFFER_SIZE];
@@ -23,14 +27,58 @@ static bool nuc_chassis_received;
 
 void NUC_Init(UART_HandleTypeDef *nuc_uart)
 {
-    nuc_ctrl_t* nuc_ptr = &nuc_instance;
-    if (nuc_ptr == NULL || nuc_uart == NULL)
+    if (nuc_uart == NULL || nuc_instance.init)
         return;
-    memset(nuc_ptr, 0, sizeof(nuc_ctrl_t));
-    nuc_rx_size = 0;
-    nuc_chassis_received = false;
-    BSP_UART_Init(&nuc_ptr->nuc_uart, nuc_uart, 115200, NucRxCallback, NULL, TX_BUFFER_SIZE, RX_BUFFER_SIZE);
-    nuc_ptr->init = 1;
+    if (BSP_UART_Init(&nuc_instance.nuc_uart, nuc_uart, 115200, NucRxCallback, NULL,
+                      TX_BUFFER_SIZE, RX_BUFFER_SIZE) == UART_OK)
+        nuc_instance.init = 1;
+}
+
+CAN_Status_t NUC_Init_CAN(CAN_HandleTypeDef *nuc_can)
+{
+    if (nuc_instance.init)
+        return CAN_ERROR;
+    CAN_Instance_t* can = BSP_CAN_Init(nuc_can);
+    if (can == NULL)
+        return CAN_ERROR;
+
+    CAN_Status_t status = BSP_CAN_RegisterStdDataCallback(can, CMD_ID_SELF_DECISION, 4, NUC_CanRxCallback, NULL);
+    if (status == CAN_OK)
+        status = BSP_CAN_RegisterStdDataCallback(can, CMD_ID_CHASSIS_CTRL, 5, NUC_CanRxCallback, NULL);
+    if (status == CAN_OK)
+        status = BSP_CAN_RegisterStdDataCallback(can, CMD_ID_BIG_GIMBAL_CTRL, 2, NUC_CanRxCallback, NULL);
+    if (status == CAN_OK)
+        nuc_instance.init = 1;
+    return status;
+}
+
+static int16_t NUC_ReadInt16LE(const uint8_t* data)
+{
+    return (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+}
+
+static void NUC_CanRxCallback(const uint8_t* data, uint32_t id, void* arg)
+{
+    (void)arg;
+    if (!nuc_instance.init)
+        return;
+
+    switch (id)
+    {
+        case CMD_ID_SELF_DECISION:
+            nuc_instance.self_decision = (uint32_t)data[0] | ((uint32_t)data[1] << 8) |
+                                         ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+            break;
+        case CMD_ID_CHASSIS_CTRL:
+            NUC_UpdateChassis(NUC_ReadInt16LE(&data[0]) / 1000.0f,
+                              NUC_ReadInt16LE(&data[2]) / 1000.0f, data[4]);
+            break;
+        case CMD_ID_BIG_GIMBAL_CTRL:
+            nuc_instance.gimbal_yaw = NUC_ReadInt16LE(data) / 100.0f;
+            break;
+        default:
+            break;
+    }
 }
 
 static void NUC_DispatchFrame(const uint8_t* frame, const uint16_t payload_size)
@@ -97,7 +145,7 @@ static void NUC_ParseRxBuffer(void)
     }
 }
 
-void NucRxCallback(uint8_t* data, const uint16_t len)
+static void NucRxCallback(uint8_t* data, const uint16_t len)
 {
     if (!nuc_instance.init)
         return;
@@ -115,7 +163,7 @@ void NucRxCallback(uint8_t* data, const uint16_t len)
     }
 }
 
-void NUC_Chassis_Handler(const uint8_t* data, const uint16_t len)
+static void NUC_Chassis_Handler(const uint8_t* data, const uint16_t len)
 {
     if (len < 9)
         return;
@@ -125,19 +173,23 @@ void NUC_Chassis_Handler(const uint8_t* data, const uint16_t len)
     unpack_4bytes_to_floats(&data[4], &vy);
     if (!isfinite(vx) || !isfinite(vy))
         return;
+    NUC_UpdateChassis(vx, vy, data[8]);
+}
 
+static void NUC_UpdateChassis(fp32 vx, fp32 vy, uint8_t flags)
+{
     nuc_instance.vx = vx;
     nuc_instance.vy = vy;
-    nuc_instance.chassis_spin = data[8] & 0x01;
-    nuc_instance.gimbal_scan = (data[8] >> 1) & 0x01;
-    nuc_instance.use_cap = (data[8] >> 2) & 0x01;
+    nuc_instance.chassis_spin = flags & 0x01;
+    nuc_instance.gimbal_scan = (flags >> 1) & 0x01;
+    nuc_instance.use_cap = (flags >> 2) & 0x01;
     nuc_chassis_rx_tick = HAL_GetTick();
     nuc_chassis_received = true;
 }
 
 bool NUC_GetChassisCommand(fp32* vx, fp32* vy, fp32* vw, uint8_t* spin)
 {
-    // USART6 中断更新指令，控制任务须一次读到同一帧的速度和标志位。
+    // 通信中断更新指令，控制任务须一次读到同一帧的速度和标志位。
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
     if (nuc_chassis_received && HAL_GetTick() - nuc_chassis_rx_tick >= NUC_CHASSIS_TIMEOUT_MS)
@@ -155,7 +207,7 @@ bool NUC_GetChassisCommand(fp32* vx, fp32* vy, fp32* vw, uint8_t* spin)
     return fresh;
 }
 
-void NUC_Gimbal_Handler(const uint8_t* data, const uint16_t len)
+static void NUC_Gimbal_Handler(const uint8_t* data, const uint16_t len)
 {
     if (len < 4)
         return;
@@ -166,7 +218,7 @@ void NUC_Gimbal_Handler(const uint8_t* data, const uint16_t len)
 
 void NUC_Referee_Tran(const uint8_t* data, const uint16_t len)
 {
-    if (!nuc_instance.init || len < 5)
+    if (!nuc_instance.init || nuc_instance.nuc_uart.handle == NULL || len < 5)
         return;
 
     BSP_UART_Transmit(&nuc_instance.nuc_uart, data, len, 100);

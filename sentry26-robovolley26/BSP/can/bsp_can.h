@@ -44,6 +44,7 @@ struct CAN_Handle_s {
     void* callback_args[MAX_CAN_FILTERS+1];        /* 回调对应保存数据位置 */
     uint32_t callback_idmasks[MAX_CAN_FILTERS+1];     /* 回调对应的ID掩码 */
     uint32_t callback_ide[MAX_CAN_FILTERS+1];       /* 回调对应的ID类型 */
+    uint8_t callback_data_size[MAX_CAN_FILTERS+1];  /* 固定数据帧长度，0xFF 表示沿用原回调规则 */
     uint8_t can_instance;                           /* CAN实例号 (0或1) */
     uint8_t init;                                   /* CAN是否完成初始化*/
 };
@@ -55,6 +56,11 @@ CAN_Status_t BSP_CAN_RegisterStdCallback(CAN_Instance_t *can_ins,
                                      uint32_t can_id,
                                      CAN_RxCallback_t rxCallback,
                                      void* arg);
+
+/* 仅对 DLC 等于 data_size 的标准数据帧调用回调。 */
+CAN_Status_t BSP_CAN_RegisterStdDataCallback(CAN_Instance_t *can_ins,
+                                           uint32_t can_id, uint8_t data_size,
+                                           CAN_RxCallback_t rxCallback, void* arg);
 
 CAN_Status_t BSP_CAN_RegisterExtCallback(CAN_Instance_t *can_ins,
                                      uint32_t can_id,

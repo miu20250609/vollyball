@@ -3,6 +3,8 @@
 #include "can.h"
 #include "string.h"
 
+#define CAN_CALLBACK_ANY_FRAME 0xFFU
+
 /* 全局CAN实例映射 */
 static CAN_Instance_t can_ins1 = {.init = 0}, can_ins2 = {.init = 0};
 static CAN_Instance_t *g_can_instances[MAX_CAN_INSTANCES] = {&can_ins1, &can_ins2};
@@ -10,7 +12,7 @@ static CAN_Instance_t *g_can_instances[MAX_CAN_INSTANCES] = {&can_ins1, &can_ins
 /* 静态函数原型 */
 static CAN_Status_t CAN_ConfigureFilters(const CAN_Instance_t *can_ins);
 static uint8_t CAN_FindEmptyIndex(const CAN_Instance_t *can_ins);
-static uint8_t CAN_FindCallbackIndex(const CAN_Instance_t *can_ins, uint32_t can_id);
+static uint8_t CAN_FindCallbackIndex(const CAN_Instance_t *can_ins, uint32_t can_id, uint32_t ide);
 CAN_Status_t BSP_CAN_Start(const CAN_Instance_t *can_ins);
 
 /**
@@ -57,7 +59,8 @@ CAN_Instance_t* BSP_CAN_Init(CAN_HandleTypeDef *hcan)
     }
 
     /* 开启CAN */
-    BSP_CAN_Start(can_ins);
+    if (BSP_CAN_Start(can_ins) != CAN_OK)
+        return NULL;
     can_ins->init = 1;
     return can_ins;
 }
@@ -70,8 +73,9 @@ CAN_Instance_t* BSP_CAN_Init(CAN_HandleTypeDef *hcan)
  * @param  arg: 回调函数存储地址
  * @retval 注册结果 (CAN_Status_t)
  */
-CAN_Status_t BSP_CAN_RegisterStdCallback(CAN_Instance_t *can_ins,
+static CAN_Status_t CAN_RegisterStdCallback(CAN_Instance_t *can_ins,
                                      const uint32_t can_id,
+                                     const uint8_t data_size,
                                      const CAN_RxCallback_t rxCallback,
                                      void* arg)
 {
@@ -84,27 +88,36 @@ CAN_Status_t BSP_CAN_RegisterStdCallback(CAN_Instance_t *can_ins,
     }
 
     /* 检查是否已存在相同ID的回调 */
-    const uint8_t existing_index = CAN_FindCallbackIndex(can_ins, can_id);
-    if (existing_index < MAX_CAN_FILTERS) {
-        /* 更新现有回调 */
-        can_ins->rx_callbacks[existing_index] = rxCallback;
-        return CAN_OK;
-    }
-
-    /* 查找可用位置 */
-    const uint8_t filter_bank = CAN_FindEmptyIndex(can_ins);
+    uint8_t filter_bank = CAN_FindCallbackIndex(can_ins, can_id, CAN_ID_STD);
+    if (filter_bank >= MAX_CAN_FILTERS)
+        filter_bank = CAN_FindEmptyIndex(can_ins);
     if (filter_bank >= MAX_CAN_FILTERS) {
         return CAN_ERROR_NO_MEMORY;
     }
 
     /* 注册回调函数 */
-    can_ins->rx_callbacks[filter_bank] = rxCallback;
     can_ins->callback_ids[filter_bank] = can_id;
     can_ins->callback_ide[filter_bank] = CAN_ID_STD;
     can_ins->callback_args[filter_bank] = arg;
     can_ins->callback_idmasks[filter_bank] = 0x7FF; // 标准ID掩码
+    can_ins->callback_data_size[filter_bank] = data_size;
+    can_ins->rx_callbacks[filter_bank] = rxCallback;
 
     return CAN_OK;
+}
+
+CAN_Status_t BSP_CAN_RegisterStdCallback(CAN_Instance_t *can_ins, uint32_t can_id,
+                                       CAN_RxCallback_t rxCallback, void* arg)
+{
+    return CAN_RegisterStdCallback(can_ins, can_id, CAN_CALLBACK_ANY_FRAME, rxCallback, arg);
+}
+
+CAN_Status_t BSP_CAN_RegisterStdDataCallback(CAN_Instance_t *can_ins, uint32_t can_id,
+                                           uint8_t data_size, CAN_RxCallback_t rxCallback, void* arg)
+{
+    if (data_size > 8)
+        return CAN_ERROR_INVALID_PARAM;
+    return CAN_RegisterStdCallback(can_ins, can_id, data_size, rxCallback, arg);
 }
 
 /**
@@ -131,7 +144,7 @@ CAN_Status_t BSP_CAN_RegisterExtCallback(CAN_Instance_t *can_ins,
     }
 
     /* 检查是否已存在相同ID的回调 */
-    const uint8_t existing_index = CAN_FindCallbackIndex(can_ins, can_id);
+    const uint8_t existing_index = CAN_FindCallbackIndex(can_ins, can_id, CAN_ID_EXT);
     if (existing_index < MAX_CAN_FILTERS) {
         /* 更新现有回调 */
         can_ins->rx_callbacks[existing_index] = rxCallback;
@@ -145,11 +158,12 @@ CAN_Status_t BSP_CAN_RegisterExtCallback(CAN_Instance_t *can_ins,
     }
 
     /* 注册回调函数 */
-    can_ins->rx_callbacks[filter_bank] = rxCallback;
     can_ins->callback_ids[filter_bank] = can_id;
     can_ins->callback_ide[filter_bank] = CAN_ID_EXT;
     can_ins->callback_args[filter_bank] = arg;
     can_ins->callback_idmasks[filter_bank] = id_mask;
+    can_ins->callback_data_size[filter_bank] = CAN_CALLBACK_ANY_FRAME;
+    can_ins->rx_callbacks[filter_bank] = rxCallback;
 
     return CAN_OK;
 }
@@ -224,10 +238,13 @@ void BSP_CAN_Rx_IRQHandler(CAN_Instance_t *can_ins)
     {
         /* 填充CAN消息结构 */
         const uint32_t rxid = rx_header.IDE == CAN_ID_STD ? rx_header.StdId : rx_header.ExtId;
-        const uint8_t idpos = CAN_FindCallbackIndex(can_ins, rxid);
-        void* arg = can_ins->callback_args[idpos];
-        if (idpos < MAX_CAN_FILTERS && can_ins->rx_callbacks[idpos] != NULL && can_ins->callback_ide[idpos] == rx_header.IDE)
-            can_ins->rx_callbacks[idpos](rx_data, rxid, arg);
+        const uint8_t idpos = CAN_FindCallbackIndex(can_ins, rxid, rx_header.IDE);
+        if (idpos >= MAX_CAN_FILTERS)
+            return;
+        const uint8_t data_size = can_ins->callback_data_size[idpos];
+        if (data_size == CAN_CALLBACK_ANY_FRAME ||
+            (rx_header.RTR == CAN_RTR_DATA && rx_header.DLC == data_size))
+            can_ins->rx_callbacks[idpos](rx_data, rxid, can_ins->callback_args[idpos]);
     }
 }
 
@@ -310,7 +327,7 @@ static CAN_Status_t CAN_ConfigureFilters(const CAN_Instance_t *can_ins)
 static uint8_t CAN_FindEmptyIndex(const CAN_Instance_t *can_ins)
 {
     for (uint8_t i = 0; i < MAX_CAN_FILTERS; i++) {
-        if (can_ins->callback_ids[i] == 0) {
+        if (can_ins->rx_callbacks[i] == NULL) {
             return i;
         }
     }
@@ -323,10 +340,11 @@ static uint8_t CAN_FindEmptyIndex(const CAN_Instance_t *can_ins)
  * @param  can_id: CAN ID
  * @retval 回调函数索引，若未找到则返回MAX_CAN_FILTERS
  */
-static uint8_t CAN_FindCallbackIndex(const CAN_Instance_t *can_ins, const uint32_t can_id)
+static uint8_t CAN_FindCallbackIndex(const CAN_Instance_t *can_ins, const uint32_t can_id, const uint32_t ide)
 {
     for (uint8_t i = 0; i < MAX_CAN_FILTERS; i++) {
-        if ((can_ins->callback_ids[i] & can_ins->callback_idmasks[i]) == (can_id & can_ins->callback_idmasks[i])) {
+        if (can_ins->rx_callbacks[i] != NULL && can_ins->callback_ide[i] == ide &&
+            (can_ins->callback_ids[i] & can_ins->callback_idmasks[i]) == (can_id & can_ins->callback_idmasks[i])) {
             return i;
         }
     }
