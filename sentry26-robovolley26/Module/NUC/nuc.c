@@ -2,12 +2,14 @@
 #include "crc.h"
 #include "usart.h"
 #include "user_lib.h"
+#include <math.h>
 #include <string.h>
 
 #define NUC_SOF 0xA5U
 #define NUC_HEADER_SIZE 5U
 #define NUC_PAYLOAD_OFFSET 7U
 #define NUC_FRAME_OVERHEAD (NUC_PAYLOAD_OFFSET + 2U)
+#define NUC_CHASSIS_TIMEOUT_MS 200U
 
 void NucRxCallback(uint8_t* data, uint16_t len);
 void NUC_Chassis_Handler(const uint8_t* data, uint16_t len);
@@ -16,6 +18,8 @@ void NUC_Gimbal_Handler(const uint8_t* data, uint16_t len);
 static nuc_ctrl_t nuc_instance;
 static uint8_t nuc_rx_buffer[RX_BUFFER_SIZE];
 static uint16_t nuc_rx_size;
+static uint32_t nuc_chassis_rx_tick;
+static bool nuc_chassis_received;
 
 void NUC_Init(UART_HandleTypeDef *nuc_uart)
 {
@@ -24,6 +28,7 @@ void NUC_Init(UART_HandleTypeDef *nuc_uart)
         return;
     memset(nuc_ptr, 0, sizeof(nuc_ctrl_t));
     nuc_rx_size = 0;
+    nuc_chassis_received = false;
     BSP_UART_Init(&nuc_ptr->nuc_uart, nuc_uart, 115200, NucRxCallback, NULL, TX_BUFFER_SIZE, RX_BUFFER_SIZE);
     nuc_ptr->init = 1;
 }
@@ -115,11 +120,39 @@ void NUC_Chassis_Handler(const uint8_t* data, const uint16_t len)
     if (len < 9)
         return;
 
-    unpack_4bytes_to_floats(&data[0], &nuc_instance.vx);
-    unpack_4bytes_to_floats(&data[4], &nuc_instance.vy);
+    fp32 vx, vy;
+    unpack_4bytes_to_floats(&data[0], &vx);
+    unpack_4bytes_to_floats(&data[4], &vy);
+    if (!isfinite(vx) || !isfinite(vy))
+        return;
+
+    nuc_instance.vx = vx;
+    nuc_instance.vy = vy;
     nuc_instance.chassis_spin = data[8] & 0x01;
     nuc_instance.gimbal_scan = (data[8] >> 1) & 0x01;
     nuc_instance.use_cap = (data[8] >> 2) & 0x01;
+    nuc_chassis_rx_tick = HAL_GetTick();
+    nuc_chassis_received = true;
+}
+
+bool NUC_GetChassisCommand(fp32* vx, fp32* vy, fp32* vw, uint8_t* spin)
+{
+    // USART6 中断更新指令，控制任务须一次读到同一帧的速度和标志位。
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (nuc_chassis_received && HAL_GetTick() - nuc_chassis_rx_tick >= NUC_CHASSIS_TIMEOUT_MS)
+        nuc_chassis_received = false;
+
+    const bool fresh = nuc_chassis_received;
+    if (fresh)
+    {
+        *vx = nuc_instance.vx;
+        *vy = nuc_instance.vy;
+        *vw = nuc_instance.vw;
+        *spin = nuc_instance.chassis_spin;
+    }
+    __set_PRIMASK(primask);
+    return fresh;
 }
 
 void NUC_Gimbal_Handler(const uint8_t* data, const uint16_t len)

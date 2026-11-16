@@ -236,6 +236,8 @@ static void rc_offline_process(robot_t* chassis_ptr)
 static void chassis_calc_move_speed(robot_t* chassis_ptr)
 {
     fp32 vx, vy, vw;
+    uint8_t nuc_spin;
+    const bool nuc_fresh = NUC_GetChassisCommand(&vx, &vy, &vw, &nuc_spin);
     if (chassis_ptr->ctrl.robot_controller == CHASSIS_RC)//遥控器控制
     {
         chassis_ptr->ctrl.chassis_spin = 0;//小陀螺模式标志，仅雷达（UPC）模式有效
@@ -245,13 +247,13 @@ static void chassis_calc_move_speed(robot_t* chassis_ptr)
         vy = (fp32)chassis_ptr->rc.rc_data.ch3 * CHASSIS_MAX_V / RC_VAL_MAX;
         vw = (fp32)chassis_ptr->rc.rc_data.ch0 * CHASSIS_MAX_W / RC_VAL_MAX;
     }
-    else if (chassis_ptr->ctrl.robot_controller == CHASSIS_UPC)//上位机（雷达）控制
+    else if (chassis_ptr->ctrl.robot_controller == CHASSIS_UPC && nuc_fresh)
     {
-        chassis_ptr->ctrl.chassis_spin = chassis_ptr->nuc_ctrl->chassis_spin;//是否小陀螺
+        chassis_ptr->ctrl.chassis_spin = nuc_spin;
 
-        vx = loop_float_constrain(chassis_ptr->nuc_ctrl->vx, -CHASSIS_MAX_V, CHASSIS_MAX_V);
-        vy = loop_float_constrain(chassis_ptr->nuc_ctrl->vy, -CHASSIS_MAX_V, CHASSIS_MAX_V);
-        vw = loop_float_constrain(chassis_ptr->nuc_ctrl->vw, -CHASSIS_MAX_W, CHASSIS_MAX_W);
+        vx = loop_float_constrain(vx, -CHASSIS_MAX_V, CHASSIS_MAX_V);
+        vy = loop_float_constrain(vy, -CHASSIS_MAX_V, CHASSIS_MAX_V);
+        vw = loop_float_constrain(vw, -CHASSIS_MAX_W, CHASSIS_MAX_W);
 
         if (chassis_ptr->ctrl.chassis_spin)
             vw = SPIN_VW_SPEED;//小陀螺模式：雷达只下发平移速度，自转角速度取固定值

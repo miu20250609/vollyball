@@ -1,5 +1,6 @@
 #ifndef STANDARD_ROBOT_C_NUC_H
 #define STANDARD_ROBOT_C_NUC_H
+#include <stdbool.h>
 #include "usart/bsp_uart.h"
 #include "typedef.h"
 
@@ -27,6 +28,8 @@ typedef struct
 } nuc_ctrl_t;
 
 void NUC_Init(UART_HandleTypeDef *nuc_uart);
+// 每个控制周期调用。仅在底盘指令未超时时写入输出参数。
+bool NUC_GetChassisCommand(fp32* vx, fp32* vy, fp32* vw, uint8_t* spin);
 nuc_ctrl_t *Get_NUC_Ctrl_Instance(void);
 void NUC_Referee_Tran(const uint8_t* data, uint16_t len);
 
