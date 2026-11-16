@@ -340,7 +340,7 @@ static void chassis_calc_wheelmotor_pidout(robot_t* chassis_ptr)
  */
 static void chassis_send_wheelmotor_cmd(const robot_t* chassis_ptr)
 {
-    int16_t m3508_iq[4];
+    int16_t m3508_iq[4] = {0};
     for (int i = 0; i < 3; i++)
         m3508_iq[i] = (int16_t)chassis_ptr->ctrl.m3508_controller[i].out;
     m3508_ctrl(&chassis_ptr->m3508, m3508_iq);

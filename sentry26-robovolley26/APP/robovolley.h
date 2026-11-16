@@ -17,9 +17,9 @@
 #define PITCH_DELTA_MAX (-0.000001f)
 #define PITCH_MAX (0.1f)
 #define PITCH_MIN (-0.8f)
-#define CHASSIS_MAX_V 4.0f // 底盘最大线速度 m/s
-#define CHASSIS_MAX_W 2.0f // 底盘最大角速度 rad/s
-#define SPIN_VW_SPEED 1.8f // 雷达请求小陀螺模式时的自转角速度 rad/s
+#define CHASSIS_MAX_V 2.0f // m/s
+#define CHASSIS_MAX_W 2.0f // rad/s
+#define SPIN_VW_SPEED 1.8f // rad/s
 #define CHASSIS_TEST_CURRENT 3000 // 测试模式给定电机电流目标（原始值范围 -16384~16384）
 
 #define CHASSIS_CONTROL_TIME 0.003f // 控制周期 3ms
